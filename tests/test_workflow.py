@@ -3,12 +3,17 @@ Unit tests for the Banking AI cheque-processing pipeline.
 
 Run with:  pytest tests/ -v
 
-Tests use mocked LLM responses — no OpenAI key needed.
+All tests are self-contained — no OpenAI key required.
+  - validate_fields_node, mock_azure, registry: import cleanly because
+    langchain_openai is now lazy-imported inside extract_fields_node only.
+  - Workflow integration tests: mock the extract node at the function level
+    using importlib so patch() always finds the already-loaded module.
 """
 
+import importlib
 import json
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 
 # ── Prompt Registry tests ─────────────────────────────────────────────────────
@@ -57,15 +62,16 @@ class TestPromptRegistry:
 
 
 # ── Validation node tests ─────────────────────────────────────────────────────
+# These import cleanly now because langchain_openai is lazy in nodes.py
 
 class TestValidationNode:
 
     def _base_state(self, fields: dict, confidence: float = 0.9):
         return {
-            "cheque_id": "TEST-001",
+            "cheque_id":        "TEST-001",
             "extracted_fields": fields,
-            "confidence": confidence,
-            "audit_log": [],
+            "confidence":       confidence,
+            "audit_log":        [],
         }
 
     def test_valid_fields_no_review_needed(self):
@@ -100,7 +106,7 @@ class TestValidationNode:
                 "amount_words":   "One Thousand",
                 "cheque_date":    "2024-01-15",
             },
-            confidence=0.5,
+            confidence=0.5,  # below 0.80 threshold
         )
         result = validate_fields_node(state)
         assert result["needs_human_review"] is True
@@ -156,7 +162,10 @@ class TestMockAzure:
         assert result.fields["cheque_date"].content == "2024-03-20"
 
 
-# ── Workflow integration test (LLM fully mocked via node patch) ───────────────
+# ── Workflow integration tests ────────────────────────────────────────────────
+# We mock at the FUNCTION level (replacing the node callable in the module)
+# instead of using patch() string paths, which require the module to already
+# be imported. importlib.import_module ensures the module is loaded first.
 
 class TestWorkflow:
 
@@ -168,7 +177,7 @@ class TestWorkflow:
         "account_number": None,
         "bank_name":      None,
         "micr_line":      None,
-        "confidence_note":"Clear extraction",
+        "confidence_note": "Clear extraction",
     }
 
     def _full_initial_state(self, cheque_text: str, cheque_id: str = "CHQ-001"):
@@ -189,20 +198,30 @@ class TestWorkflow:
         }
 
     def test_auto_approve_path(self):
-        """High-confidence cheque → auto-approved, no HITL."""
+        """High-confidence cheque → auto-approved without HITL."""
         good_fields = self.GOOD_FIELDS
 
         def mock_extract(state):
             return {
                 "extracted_fields": good_fields,
-                "confidence": 1.0,
-                "prompt_version": "1.0.0",
+                "confidence":       1.0,
+                "prompt_version":   "1.0.0",
                 "audit_log": list(state.get("audit_log", [])) + [
                     {"ts": "2024-01-15T00:00:00+00:00", "event": "Mock extraction OK"}
                 ],
             }
 
-        with patch("src.agents.workflow.extract_fields_node", mock_extract):
+        # Ensure the module is loaded before patching
+        nodes_mod = importlib.import_module("src.agents.nodes")
+        wf_mod    = importlib.import_module("src.agents.workflow")
+
+        original_extract = nodes_mod.extract_fields_node
+        try:
+            # Replace the function in both the nodes module AND the workflow
+            # module (which imported it by name at load time)
+            nodes_mod.extract_fields_node = mock_extract
+            wf_mod.extract_fields_node    = mock_extract
+
             from src.agents.workflow import build_workflow
             app = build_workflow()
             result = app.invoke(
@@ -211,6 +230,10 @@ class TestWorkflow:
                 ),
                 config={"configurable": {"thread_id": "test-auto-001"}},
             )
+        finally:
+            # Always restore originals
+            nodes_mod.extract_fields_node = original_extract
+            wf_mod.extract_fields_node    = original_extract
 
         assert result["status"] == "approved"
         assert result["human_decision"] == "approve"
@@ -219,21 +242,20 @@ class TestWorkflow:
         assert len(result["audit_log"]) >= 3
 
     def test_rejected_path(self):
-        """Simulate a HITL node that rejects the cheque."""
+        """Low-confidence cheque → HITL fires → reviewer rejects."""
         good_fields = self.GOOD_FIELDS
 
         def mock_extract(state):
             return {
                 "extracted_fields": good_fields,
-                "confidence": 0.4,           # low → triggers HITL
-                "prompt_version": "1.0.0",
+                "confidence":       0.4,   # below 0.80 → triggers HITL
+                "prompt_version":   "1.0.0",
                 "audit_log": list(state.get("audit_log", [])) + [
                     {"ts": "2024-01-15T00:00:00+00:00", "event": "Mock extraction low-conf"}
                 ],
             }
 
         def mock_hitl(state):
-            # Simulate reviewer rejecting
             return {
                 "human_decision":   "reject",
                 "corrected_fields": None,
@@ -242,14 +264,28 @@ class TestWorkflow:
                 ],
             }
 
-        with patch("src.agents.workflow.extract_fields_node", mock_extract), \
-             patch("src.agents.workflow.hitl_review_node", mock_hitl):
+        nodes_mod = importlib.import_module("src.agents.nodes")
+        wf_mod    = importlib.import_module("src.agents.workflow")
+
+        original_extract = nodes_mod.extract_fields_node
+        original_hitl    = nodes_mod.hitl_review_node
+        try:
+            nodes_mod.extract_fields_node = mock_extract
+            wf_mod.extract_fields_node    = mock_extract
+            nodes_mod.hitl_review_node    = mock_hitl
+            wf_mod.hitl_review_node       = mock_hitl
+
             from src.agents.workflow import build_workflow
             app = build_workflow()
             result = app.invoke(
                 self._full_initial_state("Unclear cheque text", "CHQ-REJECT"),
                 config={"configurable": {"thread_id": "test-reject-001"}},
             )
+        finally:
+            nodes_mod.extract_fields_node = original_extract
+            wf_mod.extract_fields_node    = original_extract
+            nodes_mod.hitl_review_node    = original_hitl
+            wf_mod.hitl_review_node       = original_hitl
 
         assert result["status"] == "rejected"
         assert result["human_decision"] == "reject"

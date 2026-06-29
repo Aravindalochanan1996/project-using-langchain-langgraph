@@ -11,7 +11,10 @@ import json
 import os
 from datetime import datetime, timezone
 
-from langchain_openai import ChatOpenAI
+# langchain_openai is imported LAZILY inside extract_fields_node so that
+# every other node (validate, hitl_review, auto_approve, finalise) can be
+# imported and unit-tested without requiring langchain_openai to be installed
+# or an OPENAI_API_KEY to be present.
 from langgraph.types import interrupt
 from pydantic import BaseModel, field_validator
 
@@ -51,7 +54,7 @@ def _log(state: dict, event: str) -> list:
 
 def _confidence(fields: ChequeFields) -> float:
     """
-    Heuristic confidence score: fraction of critical fields present.
+    Heuristic confidence: fraction of critical fields present.
     Production systems would use the model's token-level log-probs instead.
     """
     critical = [fields.amount_numeric, fields.amount_words,
@@ -65,7 +68,13 @@ def extract_fields_node(state: dict) -> dict:
     """
     Call the versioned LLM prompt to extract structured fields
     from the raw cheque text.
+
+    ChatOpenAI is imported here (lazily) so all other nodes remain
+    importable without an OpenAI key or langchain_openai installed.
     """
+    # Lazy import — only this node needs the LLM
+    from langchain_openai import ChatOpenAI  # noqa: PLC0415
+
     env = os.getenv("APP_ENV", "production")
     prompt = registry.get("cheque_extraction", env=env)
 
@@ -132,7 +141,6 @@ def validate_fields_node(state: dict) -> dict:
     # Strategy: derive the order-of-magnitude keyword from the numeric amount
     # (e.g. 1500 → "thousand", 10000 → "thousand", 1500000 → "million")
     # and check it appears in the words string.
-    # This avoids false positives from purely substring matching digits in words.
     if f.get("amount_numeric") and f.get("amount_words"):
         numeric = float(f["amount_numeric"])
         words_lower = f["amount_words"].lower()
@@ -143,8 +151,7 @@ def validate_fields_node(state: dict) -> dict:
         elif 1_000 <= numeric < 1_000_000 and "thousand" not in words_lower:
             magnitude_ok = False
         elif numeric < 1_000 and any(
-            kw in words_lower
-            for kw in ("thousand", "million", "billion")
+            kw in words_lower for kw in ("thousand", "million", "billion")
         ):
             magnitude_ok = False
 
@@ -182,11 +189,11 @@ def hitl_review_node(state: dict) -> dict:
     the SAME thread_id and Command(resume={decision, corrections}).
     """
     human_input = interrupt({
-        "cheque_id":        state["cheque_id"],
-        "extracted_fields": state["extracted_fields"],
-        "confidence":       state["confidence"],
-        "validation_errors":state["validation_errors"],
-        "amount_mismatch":  state["amount_mismatch"],
+        "cheque_id":         state["cheque_id"],
+        "extracted_fields":  state["extracted_fields"],
+        "confidence":        state["confidence"],
+        "validation_errors": state["validation_errors"],
+        "amount_mismatch":   state["amount_mismatch"],
         "instruction": (
             "Please review the extracted fields. "
             "Return {'decision': 'approve'|'reject', "
