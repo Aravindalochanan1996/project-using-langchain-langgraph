@@ -128,11 +128,27 @@ def validate_fields_node(state: dict) -> dict:
     if not f.get("cheque_date"):
         errors.append("Cheque date is missing")
 
-    # Cross-check numeric vs words (simple heuristic)
+    # Cross-check numeric vs words using magnitude keywords.
+    # Strategy: derive the order-of-magnitude keyword from the numeric amount
+    # (e.g. 1500 → "thousand", 10000 → "thousand", 1500000 → "million")
+    # and check it appears in the words string.
+    # This avoids false positives from purely substring matching digits in words.
     if f.get("amount_numeric") and f.get("amount_words"):
-        numeric_str = str(int(f["amount_numeric"]))
-        words_clean = f["amount_words"].replace(",", "")
-        if numeric_str not in words_clean and len(numeric_str) > 2:
+        numeric = float(f["amount_numeric"])
+        words_lower = f["amount_words"].lower()
+
+        magnitude_ok = True
+        if numeric >= 1_000_000 and "million" not in words_lower:
+            magnitude_ok = False
+        elif 1_000 <= numeric < 1_000_000 and "thousand" not in words_lower:
+            magnitude_ok = False
+        elif numeric < 1_000 and any(
+            kw in words_lower
+            for kw in ("thousand", "million", "billion")
+        ):
+            magnitude_ok = False
+
+        if not magnitude_ok:
             amount_mismatch = True
             errors.append(
                 f"Amount mismatch: numeric={f['amount_numeric']} "
