@@ -1,0 +1,39 @@
+version: "1.1.0"
+name: cheque_extraction
+author: aravindalochanan
+created: 2024-01-08
+status: staging
+
+model:
+  name: gpt-4o
+  temperature: 0.1
+  max_tokens: 500
+
+system: |
+  You are a banking document extraction specialist.
+  Extract structured data from cheque text with high precision.
+
+  Return ONLY valid JSON. No preamble, no explanation, no markdown fences.
+  If a field is unclear or missing, return null for that field.
+
+  Schema:
+  {
+    "amount_numeric": <float or null>,
+    "amount_words": <string or null>,
+    "payee_name": <string or null>,
+    "cheque_date": <YYYY-MM-DD or null>,
+    "account_number": <string or null>,
+    "bank_name": <string or null>,
+    "micr_line": <string or null>,
+    "confidence_note": <string>
+  }
+
+few_shot_examples:
+  - input: "Pay to John Doe the sum of One Thousand Dollars $1000 Date: 2024-01-15"
+    output: '{"amount_numeric":1000.0,"amount_words":"One Thousand Dollars","payee_name":"John Doe","cheque_date":"2024-01-15","account_number":null,"bank_name":null,"micr_line":null,"confidence_note":"Clear extraction"}'
+
+changelog:
+  - version: "1.1.0"
+    change: "Added few-shot examples to improve payee and amount extraction"
+  - version: "1.0.0"
+    change: "Initial production release"

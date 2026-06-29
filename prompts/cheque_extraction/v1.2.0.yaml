@@ -1,0 +1,48 @@
+version: "1.2.0"
+name: cheque_extraction
+author: aravindalochanan
+created: 2024-01-15
+status: dev
+
+model:
+  name: gpt-4o
+  temperature: 0.1
+  max_tokens: 600
+
+system: |
+  You are a banking document extraction specialist.
+  Extract structured data from cheque text with high precision.
+
+  Return ONLY valid JSON. No preamble, no explanation, no markdown fences.
+  If a field is unclear or missing, return null for that field.
+
+  Rules:
+  - Cross-verify amount_numeric vs amount_words. If they conflict, set confidence_note.
+  - Normalise cheque_date to YYYY-MM-DD regardless of input format.
+  - MICR line format: cheque_number|branch_code|account_number
+
+  Schema:
+  {
+    "amount_numeric": <float or null>,
+    "amount_words": <string or null>,
+    "payee_name": <string or null>,
+    "cheque_date": <YYYY-MM-DD or null>,
+    "account_number": <string or null>,
+    "bank_name": <string or null>,
+    "micr_line": <string or null>,
+    "confidence_note": <string>
+  }
+
+few_shot_examples:
+  - input: "Pay to John Doe the sum of One Thousand Dollars $1000 Date: 2024-01-15"
+    output: '{"amount_numeric":1000.0,"amount_words":"One Thousand Dollars","payee_name":"John Doe","cheque_date":"2024-01-15","account_number":null,"bank_name":null,"micr_line":null,"confidence_note":"Clear extraction"}'
+  - input: "Payee: ADCB Bank  AED 10,000  Ten Thousand Dirhams  15/01/2024  MICR: 000123|001|9876543210"
+    output: '{"amount_numeric":10000.0,"amount_words":"Ten Thousand Dirhams","payee_name":"ADCB Bank","cheque_date":"2024-01-15","account_number":"9876543210","bank_name":null,"micr_line":"000123|001|9876543210","confidence_note":"Clear extraction"}'
+
+changelog:
+  - version: "1.2.0"
+    change: "Added MICR parsing rules, date normalisation, cross-verification of amount fields"
+  - version: "1.1.0"
+    change: "Added few-shot examples to improve payee and amount extraction"
+  - version: "1.0.0"
+    change: "Initial production release"
