@@ -156,7 +156,23 @@ pytest tests/ -v
 ```
 
 > **Corporate laptop / Application Control policy error?**
-> If you see `ImportError: DLL load failed while importing _uuid_utils: An Application Control policy has blocked this file`, that's your machine's security policy (e.g. Windows Defender Application Control) blocking a native DLL inside `uuid_utils`, a transitive dependency pulled in by `langsmith`'s pytest plugin — unrelated to this project's actual code. It's already disabled via `pytest.ini` (`-p no:langsmith`). If it still occurs, run `pip uninstall langsmith uuid_utils -y`; neither package is required for this project to function.
+> If you see `ImportError: DLL load failed while importing _uuid_utils: An Application Control policy has blocked this file`, your machine's security policy is blocking a compiled extension inside `uuid_utils`, pulled in by `langsmith`'s pytest plugin (auto-loaded by pytest itself, before `pytest.ini` is even read — so `-p no:langsmith` alone won't help here).
+>
+> Use the disable-autoload environment variable instead, or the provided wrapper scripts:
+>
+> ```bash
+> # Windows PowerShell
+> $env:PYTEST_DISABLE_PLUGIN_AUTOLOAD = "1"; pytest tests/ -v
+> # or just run:
+> scripts\run_tests.bat
+>
+> # macOS / Linux
+> PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest tests/ -v
+> # or just run:
+> bash scripts/run_tests.sh
+> ```
+>
+> This project's code never imports `langsmith` directly — it's an optional LangChain tracing extra. You can also permanently remove it: `pip uninstall langsmith -y`.
 
 ### 5. Run the eval suite
 

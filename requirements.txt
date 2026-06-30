@@ -9,6 +9,18 @@ langchain-openai>=0.1.0
 #   ImportError: No module named 'uuid_utils'
 uuid_utils>=0.9.0
 
+# NOTE: langsmith is an OPTIONAL LangChain tracing/telemetry package.
+# It is never imported anywhere in this project's source code.
+# On machines with strict corporate Application Control / AppLocker
+# policies, langsmith's pytest plugin (auto-loaded via entry points)
+# pulls in a compiled DLL inside uuid_utils that gets blocked, crashing
+# pytest before any tests run:
+#   ImportError: DLL load failed while importing _uuid_utils:
+#   An Application Control policy has blocked this file.
+# If this happens, run:
+#   pip uninstall langsmith uuid_utils -y
+# Do NOT add langsmith back to this file.
+
 # LLM providers
 openai>=1.30.0
 
