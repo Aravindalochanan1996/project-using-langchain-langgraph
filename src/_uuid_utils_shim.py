@@ -64,12 +64,30 @@ def install() -> None:
     the process — by our code or by langchain_core/langsmith — receives
     this shim instead of trying to load the real compiled package.
 
-    Safe to call multiple times; only installs once.
+    Defensively purges any PARTIALLY-imported langchain_core / langsmith /
+    uuid_utils modules from sys.modules first. This matters because Python
+    registers a module in sys.modules BEFORE it finishes executing the
+    file — so if an earlier import attempt in the same process failed
+    partway through (e.g. a previous blocked uuid_utils import, before
+    this shim was installed), a broken half-initialized module can stay
+    cached and cause confusing downstream errors like:
+        ImportError: cannot import name 'X' from 'Y' (unknown location)
+    Purging ensures every import after install() starts from a clean
+    slate, regardless of what happened earlier in the same process.
+
+    Safe to call multiple times; only installs once per process.
     """
     if "uuid_utils" in sys.modules and getattr(
         sys.modules["uuid_utils"], "_is_pure_python_shim", False
     ):
-        return  # already installed
+        return  # already installed cleanly, nothing to do
+
+    # Purge any stale/partial cached modules in the dependency chain
+    # that might have been left behind by an earlier failed import
+    stale_prefixes = ("uuid_utils", "langsmith", "langchain_core", "langgraph")
+    for mod_name in list(sys.modules.keys()):
+        if any(mod_name == p or mod_name.startswith(p + ".") for p in stale_prefixes):
+            del sys.modules[mod_name]
 
     shim = types.ModuleType("uuid_utils")
     shim._is_pure_python_shim = True
