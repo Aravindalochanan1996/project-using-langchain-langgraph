@@ -3,6 +3,12 @@ langgraph>=0.2.0
 langchain>=0.2.0
 langchain-openai>=0.1.0
 
+# Transitive dependency of langchain_core.runnables — pinned explicitly
+# because some environments (e.g. fresh venvs, restricted pip mirrors)
+# don't always resolve it automatically, causing:
+#   ImportError: No module named 'uuid_utils'
+uuid_utils>=0.9.0
+
 # LLM providers
 openai>=1.30.0
 
