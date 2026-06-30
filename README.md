@@ -155,6 +155,9 @@ APP_ENV=staging python scripts/run_cheque.py
 pytest tests/ -v
 ```
 
+> **Corporate laptop / Application Control policy error?**
+> If you see `ImportError: DLL load failed while importing _uuid_utils: An Application Control policy has blocked this file`, that's your machine's security policy (e.g. Windows Defender Application Control) blocking a native DLL inside `uuid_utils`, a transitive dependency pulled in by `langsmith`'s pytest plugin — unrelated to this project's actual code. It's already disabled via `pytest.ini` (`-p no:langsmith`). If it still occurs, run `pip uninstall langsmith uuid_utils -y`; neither package is required for this project to function.
+
 ### 5. Run the eval suite
 
 ```bash
