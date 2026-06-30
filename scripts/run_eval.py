@@ -14,6 +14,13 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
+# Install pure-Python uuid_utils shim BEFORE any langgraph/langchain_core
+# import, so this works even on machines where the compiled uuid_utils
+# extension is blocked by Application Control policies. See
+# src/_uuid_utils_shim.py for details.
+from src._uuid_utils_shim import install as _install_uuid_shim
+_install_uuid_shim()
+
 from src.evaluation.eval_suite import print_report, promote_if_passing, run_eval
 
 if __name__ == "__main__":

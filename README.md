@@ -155,24 +155,19 @@ APP_ENV=staging python scripts/run_cheque.py
 pytest tests/ -v
 ```
 
-> **Corporate laptop / Application Control policy error?**
-> If you see `ImportError: DLL load failed while importing _uuid_utils: An Application Control policy has blocked this file`, your machine's security policy is blocking a compiled extension inside `uuid_utils`, pulled in by `langsmith`'s pytest plugin (auto-loaded by pytest itself, before `pytest.ini` is even read — so `-p no:langsmith` alone won't help here).
->
-> Use the disable-autoload environment variable instead, or the provided wrapper scripts:
->
-> ```bash
-> # Windows PowerShell
-> $env:PYTEST_DISABLE_PLUGIN_AUTOLOAD = "1"; pytest tests/ -v
-> # or just run:
-> scripts\run_tests.bat
->
-> # macOS / Linux
-> PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest tests/ -v
-> # or just run:
-> bash scripts/run_tests.sh
+> **Corporate laptop / Application Control policy blocking `_uuid_utils.pyd`?**
+> Some Windows machines (e.g. with Windows Defender Application Control / AppLocker) block the compiled `uuid_utils` extension that `langchain_core` depends on, no matter which code path imports it:
 > ```
+> ImportError: DLL load failed while importing _uuid_utils:
+> An Application Control policy has blocked this file.
+> ```
+> This is already solved for you. `src/_uuid_utils_shim.py` provides a pure-Python, stdlib-only replacement for `uuid_utils` (RFC-9562-compliant UUIDv7 generation with zero compiled code), and `conftest.py` installs it automatically before pytest collects any tests. `scripts/run_cheque.py` and `scripts/run_eval.py` install it too, so the CLI demos work the same way. You shouldn't need to do anything — just `git pull` and run `pytest tests/ -v` as normal.
 >
-> This project's code never imports `langsmith` directly — it's an optional LangChain tracing extra. You can also permanently remove it: `pip uninstall langsmith -y`.
+> If you ever hit this in a *new* entry point script, add this before any `langgraph`/`langchain` import:
+> ```python
+> from src._uuid_utils_shim import install
+> install()
+> ```
 
 ### 5. Run the eval suite
 
